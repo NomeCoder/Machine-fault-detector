@@ -4,17 +4,13 @@ import joblib
 from scipy.fft import fft
 import pandas as pd
 import time
-# ==============================
-# CONFIG
-# ==============================
-PORT = "COM5"   # CHANGE
+
+PORT = "COM5"   
 BAUD = 115200
 WINDOW_SIZE = 128
-RMS_TRIGGER = 0.015   # sensitivity (adjust)
+RMS_TRIGGER = 0.015   
 
-# ==============================
-# LOAD MODEL
-# ==============================
+
 model = joblib.load("faultdetect.pkl")
 scaler = joblib.load("scaler.pkl")
 
@@ -55,7 +51,7 @@ while True:
             rms = np.sqrt(np.mean(window**2))
             print("RMS:", round(rms, 5))
 
-            # ===== Trigger ML only if vibration strong =====
+            
             if rms < RMS_TRIGGER:
                 print("STATUS: NORMAL")
                 time.sleep(0.01)
@@ -71,4 +67,5 @@ while True:
 
 
     except:
+
         pass
