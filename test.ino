@@ -5,7 +5,7 @@
 #define ACCEL_XOUT_H 0x3B
 
 unsigned long lastSampleTime = 0;
-const int sampleInterval = 5;   // 5ms ≈ 200 Hz
+const int sampleInterval = 5;   
 
 void setup() {
   Serial.begin(115200);
@@ -50,4 +50,5 @@ void loop() {
     Serial.print(",");
     Serial.println(az, 5);
   }
+
 }
