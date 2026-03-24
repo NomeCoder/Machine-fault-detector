@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VibeSense — Fault Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@300;400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #080c10;
+    --bg2: #0d1117;
+    --panel: #111820;
+    --border: #1e2d3d;
+    --accent: #00e5ff;
+    --accent2: #ff3d57;
+    --warn: #ffb800;
+    --ok: #00e676;
+    --text: #cdd9e5;
+    --muted: #546e7a;
+    --grid: rgba(0,229,255,0.04);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scan line */
+  body::after {
+    content: '';
+    position: fixed;
+    top: -100%;
+    left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(transparent, rgba(0,229,255,0.15), transparent);
+    animation: scanline 6s linear infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @keyframes scanline { to { top: 200%; } }
+
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 36px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,12,16,0.9);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,229,255,0.4);
+  }
+  .logo span { color: var(--text); opacity: 0.5; }
+
+  .header-right { display: flex; align-items: center; gap: 20px; }
+
+  .live-indicator {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; letter-spacing: 2px; color: var(--muted);
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .live-dot.active {
+    background: var(--ok);
+    box-shadow: 0 0 10px var(--ok);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.8); }
+  }
+
+  main {
+    position: relative; z-index: 5;
+    padding: 28px 36px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 18px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ===== STATUS HERO ===== */
+  .status-hero {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+  }
+
+  .status-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 32px;
+    height: 100%;
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+  }
+  .status-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    transition: background 0.4s;
+  }
+  .status-card.fault::before { background: var(--accent2); }
+  .status-card.normal::before { background: var(--ok); }
+
+  .status-label {
+    font-size: 10px; letter-spacing: 3px; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 12px;
+  }
+
+  .status-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 80px;
+    line-height: 1;
+    color: var(--text);
+    transition: color 0.3s, text-shadow 0.3s;
+    letter-spacing: 2px;
+  }
+  .status-value.FAULT {
+    color: var(--accent2);
+    text-shadow: 0 0 40px rgba(255,61,87,0.4);
+  }
+  .status-value.NORMAL {
+    color: var(--ok);
+    text-shadow: 0 0 40px rgba(0,230,118,0.3);
+  }
+  .status-value.IDLE { color: var(--muted); }
+
+  .rms-display {
+    margin-top: 20px;
+  }
+  .rms-label { font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+  .rms-value {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 2px;
+  }
+
+  /* ===== RMS GAUGE ===== */
+  .rms-gauge-card {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px;
+    display: flex; flex-direction: column;
+  }
+
+  .gauge-title { font-size: 10px; letter-spacing: 3px; color: var(--muted); margin-bottom: 20px; }
+
+  .gauge-wrap {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  canvas#gaugeCanvas { display: block; }
+
+  /* ===== CONTROLS ===== */
+  .controls-card {
+    grid-column: 3 / 4;
+    grid-row: 1 / 2;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+
+  .ctrl-title { font-size: 10px; letter-spacing: 3px; color: var(--muted); margin-bottom: 4px; }
+
+  .btn {
+    display: block; width: 100%;
+    padding: 13px 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; letter-spacing: 3px;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .btn:hover::after { opacity: 0.06; }
+  .btn:active::after { opacity: 0.12; }
+
+  .btn-start { border-color: var(--ok); color: var(--ok); }
+  .btn-start:hover { box-shadow: 0 0 20px rgba(0,230,118,0.2); }
+  .btn-stop { border-color: var(--accent2); color: var(--accent2); }
+  .btn-stop:hover { box-shadow: 0 0 20px rgba(255,61,87,0.2); }
+  .btn-reset { border-color: var(--warn); color: var(--warn); }
+  .btn-reset:hover { box-shadow: 0 0 20px rgba(255,184,0,0.2); }
+
+  .config-group { margin-top: 8px; }
+  .config-label { font-size: 10px; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; display: block; }
+  .config-row { display: flex; gap: 8px; }
+  .config-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--accent);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    padding: 8px 12px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .config-input:focus { border-color: var(--accent); }
+  .btn-apply {
+    padding: 8px 16px;
+    width: auto;
+    font-size: 11px;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* ===== STATS ROW ===== */
+  .stats-row {
+    grid-column: 1 / 4;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 24px;
+  }
+  .stat-label { font-size: 9px; letter-spacing: 3px; color: var(--muted); text-transform: uppercase; }
+  .stat-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 44px;
+    line-height: 1.1;
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+  .stat-value.fault-val { color: var(--accent2); }
+  .stat-value.ok-val { color: var(--ok); }
+  .stat-value.accent-val { color: var(--accent); }
+  .stat-value.warn-val { color: var(--warn); }
+
+  /* ===== WAVEFORM ===== */
+  .waveform-card {
+    grid-column: 1 / 3;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 24px;
+  }
+  .wave-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .wave-title { font-size: 10px; letter-spacing: 3px; color: var(--muted); }
+  .wave-legend { display: flex; gap: 16px; font-size: 10px; color: var(--muted); }
+  .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+  canvas#waveCanvas {
+    display: block;
+    width: 100%;
+    height: 160px;
+  }
+
+  /* ===== FEATURES ===== */
+  .features-card {
+    grid-column: 3 / 4;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 24px;
+  }
+  .feat-title { font-size: 10px; letter-spacing: 3px; color: var(--muted); margin-bottom: 16px; }
+  .feat-grid { display: flex; flex-direction: column; gap: 10px; }
+
+  .feat-row { display: flex; justify-content: space-between; align-items: center; }
+  .feat-name { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .feat-bar-wrap { flex: 1; height: 3px; background: var(--border); margin: 0 12px; border-radius: 2px; }
+  .feat-bar { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s ease; min-width: 2px; }
+  .feat-val { font-size: 11px; color: var(--text); min-width: 72px; text-align: right; }
+
+  /* ===== LOG ===== */
+  .log-card {
+    grid-column: 1 / 4;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 24px;
+  }
+  .log-title { font-size: 10px; letter-spacing: 3px; color: var(--muted); margin-bottom: 12px; }
+  .log-scroll {
+    height: 140px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .log-row {
+    display: grid;
+    grid-template-columns: 90px 180px 1fr;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(30,45,61,0.5);
+    font-size: 11px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .log-time { color: var(--muted); }
+  .log-rms { color: var(--accent); }
+  .log-status-ok { color: var(--ok); }
+  .log-status-fault { color: var(--accent2); letter-spacing: 1px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">VibeSense <span>/</span> Fault Detection</div>
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="live-dot" id="liveDot"></div>
+      <span id="liveText">OFFLINE</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- STATUS HERO -->
+  <div class="status-hero">
+    <div class="status-card" id="statusCard">
+      <div>
+        <div class="status-label">// MACHINE STATUS</div>
+        <div class="status-value IDLE" id="statusValue">IDLE</div>
+      </div>
+      <div class="rms-display">
+        <div class="rms-label">// ROOT MEAN SQUARE</div>
+        <div class="rms-value" id="rmsValue">0.000000</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RMS GAUGE -->
+  <div class="rms-gauge-card">
+    <div class="gauge-title">// RMS LEVEL METER</div>
+    <div class="gauge-wrap">
+      <canvas id="gaugeCanvas" width="200" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="controls-card">
+    <div class="ctrl-title">// CONTROL PANEL</div>
+    <button class="btn btn-start" id="btnStart" onclick="startDetection()">▶ START DETECTION</button>
+    <button class="btn btn-stop" id="btnStop" onclick="stopDetection()">■ STOP</button>
+    <button class="btn btn-reset" onclick="resetStats()">↺ RESET STATS</button>
+    <div class="config-group">
+      <label class="config-label">// RMS TRIGGER THRESHOLD</label>
+      <div class="config-row">
+        <input class="config-input" id="rmsInput" type="number" step="0.001" value="0.015" min="0.001" max="1"/>
+        <button class="btn btn-apply" onclick="applyConfig()">APPLY</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS ROW -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Total Windows</div>
+      <div class="stat-value accent-val" id="totalWindows">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Normal Detections</div>
+      <div class="stat-value ok-val" id="normalCount">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Fault Detections</div>
+      <div class="stat-value fault-val" id="faultCount">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Fault Rate</div>
+      <div class="stat-value warn-val" id="faultRate">0%</div>
+    </div>
+  </div>
+
+  <!-- WAVEFORM -->
+  <div class="waveform-card">
+    <div class="wave-header">
+      <div class="wave-title">// RMS TIMELINE</div>
+      <div class="wave-legend">
+        <span><span class="legend-dot" style="background:var(--accent)"></span>RMS</span>
+        <span><span class="legend-dot" style="background:rgba(255,61,87,0.5)"></span>FAULT</span>
+      </div>
+    </div>
+    <canvas id="waveCanvas"></canvas>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="features-card">
+    <div class="feat-title">// LAST FEATURE VECTOR</div>
+    <div class="feat-grid" id="featGrid">
+      <!-- filled by JS -->
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="log-card">
+    <div class="log-title">// EVENT LOG</div>
+    <div class="log-scroll" id="logScroll">
+      <!-- filled by JS -->
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ==================== STATE ====================
+let isRunning = false;
+let history = [];
+let pollInterval = null;
+const RMS_MAX = 0.15;
+
+// ==================== API ====================
+async function api(endpoint, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(endpoint, opts);
+  return r.json();
+}
+
+async function startDetection() {
+  await api('/api/start', 'POST');
+  isRunning = true;
+  updateControls();
+  if (!pollInterval) pollInterval = setInterval(poll, 800);
+}
+
+async function stopDetection() {
+  await api('/api/stop', 'POST');
+  isRunning = false;
+  updateControls();
+  clearInterval(pollInterval);
+  pollInterval = null;
+}
+
+async function resetStats() {
+  await api('/api/reset', 'POST');
+}
+
+async function applyConfig() {
+  const val = parseFloat(document.getElementById('rmsInput').value);
+  await api('/api/config', 'POST', { rms_trigger: val });
+}
+
+async function poll() {
+  const data = await api('/api/status');
+  render(data);
+}
+
+// ==================== RENDER ====================
+function render(data) {
+  // Live dot
+  const dot = document.getElementById('liveDot');
+  const liveText = document.getElementById('liveText');
+  dot.classList.toggle('active', data.running);
+  liveText.textContent = data.running ? 'LIVE' : 'OFFLINE';
+
+  // Status
+  const card = document.getElementById('statusCard');
+  const sv = document.getElementById('statusValue');
+  sv.textContent = data.status;
+  sv.className = 'status-value ' + data.status;
+  card.className = 'status-card ' + (data.status === 'FAULT' ? 'fault' : data.status === 'NORMAL' ? 'normal' : '');
+
+  // RMS
+  document.getElementById('rmsValue').textContent = data.rms.toFixed(6);
+
+  // Stats
+  document.getElementById('totalWindows').textContent = data.total_windows;
+  document.getElementById('normalCount').textContent = data.normal_count;
+  document.getElementById('faultCount').textContent = data.fault_count;
+  const rate = data.total_windows > 0 ? Math.round((data.fault_count / data.total_windows) * 100) : 0;
+  document.getElementById('faultRate').textContent = rate + '%';
+
+  // Gauge
+  drawGauge(data.rms);
+
+  // History
+  history = data.history || [];
+  drawWave(history);
+  renderLog(history);
+
+  // Features
+  renderFeatures(data.last_features || {});
+}
+
+function updateControls() {
+  document.getElementById('btnStart').style.opacity = isRunning ? '0.4' : '1';
+  document.getElementById('btnStop').style.opacity = isRunning ? '1' : '0.4';
+}
+
+// ==================== GAUGE ====================
+function drawGauge(rms) {
+  const canvas = document.getElementById('gaugeCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2 + 10;
+  const r = 75;
+  ctx.clearRect(0, 0, W, H);
+
+  const startAngle = Math.PI * 0.75;
+  const endAngle = Math.PI * 2.25;
+  const val = Math.min(rms / RMS_MAX, 1);
+  const valAngle = startAngle + val * (endAngle - startAngle);
+
+  // Track
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, endAngle);
+  ctx.strokeStyle = '#1e2d3d';
+  ctx.lineWidth = 10;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Value arc
+  const color = val > 0.7 ? '#ff3d57' : val > 0.4 ? '#ffb800' : '#00e5ff';
+  const gradient = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+  gradient.addColorStop(0, '#00e5ff');
+  gradient.addColorStop(1, color);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, valAngle);
+  ctx.strokeStyle = gradient;
+  ctx.lineWidth = 10;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Glow
+  if (val > 0.01) {
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, valAngle - 0.05, valAngle);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Ticks
+  for (let i = 0; i <= 10; i++) {
+    const a = startAngle + (i / 10) * (endAngle - startAngle);
+    const inner = r - 16, outer = r - 22;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
+    ctx.lineTo(cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
+    ctx.strokeStyle = '#1e2d3d';
+    ctx.lineWidth = i % 5 === 0 ? 2 : 1;
+    ctx.stroke();
+  }
+
+  // Center value
+  ctx.fillStyle = color;
+  ctx.font = "bold 22px 'Bebas Neue', sans-serif";
+  ctx.textAlign = 'center';
+  ctx.fillText(rms.toFixed(4), cx, cy + 6);
+
+  ctx.fillStyle = '#546e7a';
+  ctx.font = "10px 'IBM Plex Mono', monospace";
+  ctx.fillText('RMS', cx, cy + 22);
+}
+
+// ==================== WAVEFORM ====================
+function drawWave(hist) {
+  const canvas = document.getElementById('waveCanvas');
+  const W = canvas.offsetWidth || 600;
+  const H = 160;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(30,45,61,0.6)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const y = (i / 4) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  if (hist.length < 2) return;
+
+  const maxRms = Math.max(...hist.map(h => h.rms), RMS_MAX * 0.5);
+
+  // Fault zones
+  hist.forEach((p, i) => {
+    if (p.status === 'FAULT') {
+      const x = (i / (hist.length - 1)) * W;
+      const dx = W / hist.length;
+      ctx.fillStyle = 'rgba(255,61,87,0.08)';
+      ctx.fillRect(x - dx/2, 0, dx, H);
+    }
+  });
+
+  // Line
+  ctx.beginPath();
+  hist.forEach((p, i) => {
+    const x = (i / (hist.length - 1)) * W;
+    const y = H - (p.rms / maxRms) * H * 0.85 - 8;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = 'rgba(0,229,255,0.8)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Fill
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(0,229,255,0.15)');
+  grad.addColorStop(1, 'rgba(0,229,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Dots for fault
+  hist.forEach((p, i) => {
+    if (p.status === 'FAULT') {
+      const x = (i / (hist.length - 1)) * W;
+      const y = H - (p.rms / maxRms) * H * 0.85 - 8;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'var(--accent2)';
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'var(--accent2)';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  });
+}
+
+// ==================== FEATURES ====================
+const FEAT_KEYS = ['mean','std','rms','max','min','kurtosis','skewness','fft_mean','fft_max'];
+const FEAT_LABELS = ['Mean','Std Dev','RMS','Maximum','Minimum','Kurtosis','Skewness','FFT Mean','FFT Max'];
+
+function renderFeatures(feats) {
+  const grid = document.getElementById('featGrid');
+  if (!Object.keys(feats).length) return;
+
+  const vals = FEAT_KEYS.map(k => Math.abs(feats[k] || 0));
+  const maxVal = Math.max(...vals, 0.001);
+
+  grid.innerHTML = FEAT_KEYS.map((k, i) => {
+    const v = feats[k] !== undefined ? feats[k] : 0;
+    const pct = Math.min((Math.abs(v) / maxVal) * 100, 100);
+    return `<div class="feat-row">
+      <span class="feat-name">${FEAT_LABELS[i]}</span>
+      <div class="feat-bar-wrap"><div class="feat-bar" style="width:${pct}%"></div></div>
+      <span class="feat-val">${v.toFixed(4)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ==================== LOG ====================
+function renderLog(hist) {
+  const scroll = document.getElementById('logScroll');
+  const reversed = [...hist].reverse();
+  scroll.innerHTML = reversed.map(h => `
+    <div class="log-row">
+      <span class="log-time">${h.time}</span>
+      <span class="log-rms">RMS: ${h.rms.toFixed(6)}</span>
+      <span class="${h.status === 'FAULT' ? 'log-status-fault' : 'log-status-ok'}">${h.status}</span>
+    </div>
+  `).join('');
+}
+
+// ==================== INIT ====================
+drawGauge(0);
+updateControls();
+</script>
+</body>
+</html>
